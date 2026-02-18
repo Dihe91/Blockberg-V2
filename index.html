@@ -1,0 +1,497 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Blockberg Terminal - Live Data</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Inter:wght@400;600;700&display=swap');
+
+        :root {
+            --bbg-black: #000000;
+            --bbg-dark: #121212;
+            --bbg-gray: #1c1c1c;
+            --bbg-text: #e0e0e0;
+            --bbg-orange: #ff9500;
+            --bbg-green: #00ff00;
+            --bbg-red: #ff3b30;
+            --bbg-blue: #007aff;
+            --left-panel-width: 33%;
+        }
+
+        body {
+            background-color: var(--bbg-black);
+            color: var(--bbg-text);
+            font-family: 'Inter', sans-serif;
+            overflow: hidden;
+            height: 100vh;
+            user-select: none;
+        }
+
+        .mono { font-family: 'JetBrains Mono', monospace; }
+
+        ::-webkit-scrollbar { width: 4px; height: 4px; }
+        ::-webkit-scrollbar-track { background: var(--bbg-black); }
+        ::-webkit-scrollbar-thumb { background: #333; border-radius: 10px; }
+
+        .main-container {
+            display: flex;
+            height: calc(100vh - 108px);
+            width: 100%;
+        }
+
+        #left-panel {
+            width: var(--left-panel-width);
+            min-width: 250px;
+            max-width: 60%;
+            display: flex;
+            flex-direction: column;
+        }
+
+        #resizer {
+            width: 4px;
+            cursor: col-resize;
+            background: #2a2a2a;
+            transition: background 0.2s;
+            z-index: 50;
+        }
+
+        #resizer:hover, .resizing #resizer {
+            background: var(--bbg-orange);
+        }
+
+        #right-panel {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            min-width: 300px;
+        }
+
+        .ticker-wrap {
+            width: 100%;
+            overflow: hidden;
+            background-color: var(--bbg-dark);
+            border-bottom: 1px solid #333;
+            height: 32px;
+            display: flex;
+            align-items: center;
+        }
+
+        .news-ticker-wrap {
+            width: 100%;
+            overflow: hidden;
+            background-color: #0a1128;
+            border-top: 1px solid #1e3a8a;
+            height: 28px;
+            display: flex;
+            align-items: center;
+            z-index: 40;
+        }
+
+        .ticker-move {
+            display: flex;
+            white-space: nowrap;
+            animation: ticker-market 60s linear infinite;
+        }
+
+        .news-move {
+            display: flex;
+            white-space: nowrap;
+            animation: ticker-news 120s linear infinite;
+        }
+
+        @keyframes ticker-market {
+            0% { transform: translateX(0); }
+            100% { transform: translateX(-50%); }
+        }
+
+        @keyframes ticker-news {
+            0% { transform: translateX(0); }
+            100% { transform: translateX(-50%); }
+        }
+
+        .glass-panel {
+            background: rgba(18, 18, 18, 0.9);
+            border: 1px solid #2a2a2a;
+            border-radius: 2px;
+            height: 100%;
+        }
+
+        .positive { color: var(--bbg-green); }
+        .negative { color: var(--bbg-red); }
+
+        .headline-tag {
+            background: #ff9500;
+            color: black;
+            padding: 0 6px;
+            font-weight: 800;
+            margin-right: 12px;
+            font-size: 10px;
+        }
+
+        .resizing { cursor: col-resize; }
+    </style>
+</head>
+<body class="flex flex-col">
+
+    <!-- Header -->
+    <header class="h-12 border-b border-gray-800 flex items-center px-4 justify-between bg-black z-50">
+        <div class="flex items-center space-x-4">
+            <div class="text-orange-500 font-bold text-xl tracking-tighter">BLOCKBERG <span class="text-white font-light text-sm ml-1">TERMINAL</span></div>
+            <div class="flex items-center space-x-2 bg-gray-900 px-2 py-1 rounded border border-gray-700">
+                <i data-lucide="search" class="w-4 h-4 text-gray-400"></i>
+                <input type="text" id="cmd-input" placeholder="RECHERCHE SÉCURITÉS (EX: SOLANA)..." class="bg-transparent text-xs w-64 focus:outline-none uppercase text-gray-200">
+            </div>
+        </div>
+        <div class="flex items-center space-x-6 text-[10px] font-bold uppercase tracking-widest text-gray-400">
+            <div class="flex flex-col items-end">
+                <span id="market-status" class="text-green-500">LIVE FEED</span>
+                <span>LOCAL TIME: <span id="local-time-header">00:00:00</span></span>
+            </div>
+            <div class="flex items-center space-x-2">
+                <i data-lucide="wifi" class="w-4 h-4 text-green-500"></i>
+                <span id="api-status">READY</span>
+            </div>
+        </div>
+    </header>
+
+    <!-- Ticker Marché (Haut) -->
+    <div class="ticker-wrap text-[11px] font-bold">
+        <div class="ticker-move" id="ticker-content"></div>
+    </div>
+
+    <!-- Main Content -->
+    <main class="flex-1 flex overflow-hidden">
+        
+        <nav class="w-14 border-r border-gray-800 flex flex-col items-center py-4 space-y-6 bg-black">
+            <button class="text-orange-500 p-2 hover:bg-gray-900 rounded"><i data-lucide="layout-grid" class="w-6 h-6"></i></button>
+            <button class="text-gray-500 p-2 hover:bg-gray-900 rounded"><i data-lucide="line-chart" class="w-6 h-6"></i></button>
+            <button class="text-gray-500 p-2 hover:bg-gray-900 rounded"><i data-lucide="globe" class="w-6 h-6"></i></button>
+            <button class="text-gray-500 p-2 hover:bg-gray-900 rounded"><i data-lucide="activity" class="w-6 h-6"></i></button>
+            <div class="mt-auto text-gray-600"><i data-lucide="settings" class="w-6 h-6"></i></div>
+        </nav>
+
+        <div class="main-container flex-1">
+            <div id="left-panel" class="p-2 overflow-hidden">
+                <div class="glass-panel p-3 flex flex-col overflow-hidden">
+                    <div class="flex justify-between items-center mb-4">
+                        <h2 class="text-xs font-bold uppercase text-gray-400 flex items-center tracking-wider">
+                            <i data-lucide="list" class="w-4 h-4 mr-2 text-orange-500"></i> WATCHLIST
+                        </h2>
+                        <span class="text-[9px] text-gray-500 mono" id="last-update">...</span>
+                    </div>
+                    <div class="overflow-y-auto flex-1">
+                        <table class="w-full text-left text-[11px] mono">
+                            <thead>
+                                <tr class="text-gray-600 border-b border-gray-800 uppercase text-[9px]">
+                                    <th class="pb-2">Asset</th>
+                                    <th class="pb-2 text-right">Price</th>
+                                    <th class="pb-2 text-right">24h%</th>
+                                </tr>
+                            </thead>
+                            <tbody id="watchlist-body"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <div id="resizer"></div>
+
+            <div id="right-panel" class="p-2 overflow-hidden">
+                <div class="glass-panel p-3 flex flex-col relative overflow-hidden">
+                    <div class="flex justify-between items-center mb-4">
+                        <div class="flex items-center space-x-3">
+                            <h2 class="text-sm font-bold text-white uppercase" id="chart-title">BITCOIN / USD</h2>
+                            <div class="flex flex-col">
+                                <span class="text-green-500 font-bold mono text-lg leading-none" id="chart-price">---</span>
+                                <span class="text-[10px] text-gray-500 mono" id="chart-chg">---</span>
+                            </div>
+                        </div>
+                        <div class="flex space-x-1">
+                            <button onclick="changeRange('5m')" class="range-btn bg-gray-800 text-[10px] px-2 py-1 rounded">5M</button>
+                            <button onclick="changeRange('30m')" class="range-btn bg-gray-800 text-[10px] px-2 py-1 rounded">30M</button>
+                            <button onclick="changeRange('4h')" class="range-btn bg-gray-800 text-[10px] px-2 py-1 rounded">4H</button>
+                            <button onclick="changeRange('1d')" class="range-btn bg-orange-600 text-[10px] px-2 py-1 rounded">1D</button>
+                            <button onclick="changeRange('1w')" class="range-btn bg-gray-800 text-[10px] px-2 py-1 rounded">1W</button>
+                            <button onclick="changeRange('1m')" class="range-btn bg-gray-800 text-[10px] px-2 py-1 rounded">1M</button>
+                        </div>
+                    </div>
+                    <div class="flex-1 w-full relative">
+                        <canvas id="mainChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- News Headline Ticker (Bottom) -->
+    <div class="news-ticker-wrap">
+        <div class="flex items-center h-full bg-blue-800 px-3 z-50 shadow-lg">
+            <span class="text-[10px] font-black uppercase text-white tracking-tighter flex items-center">
+                <i data-lucide="newspaper" class="w-3 h-3 mr-1"></i> HEADLINES
+            </span>
+        </div>
+        <div class="news-move text-[11px] text-blue-100 font-medium items-center" id="news-ticker-content">
+            <span class="mx-8 italic">CHARGEMENT DU FLUX MONDIAL...</span>
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <footer class="h-6 bg-black border-t border-gray-800 flex items-center px-4 justify-between text-[10px] font-bold text-gray-500 uppercase">
+        <div class="flex items-center space-x-4">
+            <span class="text-green-600">NETWORK: STABLE</span>
+            <span>FEED: CNBC / COINGECKO</span>
+        </div>
+        <div id="system-clock">---</div>
+    </footer>
+
+    <script>
+        lucide.createIcons();
+
+        const COINS = ['bitcoin', 'ethereum', 'tether', 'solana', 'binancecoin', 'ripple', 'cardano', 'avalanche-2'];
+        let selectedCoin = 'bitcoin';
+        let mainChart = null;
+        let chartRange = '1d';
+
+        // Resizer Logic
+        const leftPanel = document.getElementById('left-panel');
+        const resizer = document.getElementById('resizer');
+        let isResizing = false;
+
+        resizer.addEventListener('mousedown', (e) => {
+            isResizing = true;
+            document.body.classList.add('resizing');
+        });
+
+        document.addEventListener('mousemove', (e) => {
+            if (!isResizing) return;
+            const containerWidth = document.querySelector('.main-container').offsetWidth;
+            let newWidth = (e.clientX - 56) / containerWidth * 100;
+            if (newWidth < 20) newWidth = 20;
+            if (newWidth > 60) newWidth = 60;
+            leftPanel.style.width = `${newWidth}%`;
+            if (mainChart) mainChart.resize();
+        });
+
+        document.addEventListener('mouseup', () => {
+            isResizing = false;
+            document.body.classList.remove('resizing');
+        });
+
+        // Market Data
+        async function fetchPrices() {
+            try {
+                const response = await fetch(`https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=${COINS.join(',')}&order=market_cap_desc&per_page=100&page=1&sparkline=false&price_change_percentage=24h`);
+                const data = await response.json();
+                
+                updateWatchlist(data);
+                updateMarketTicker(data);
+                
+                const current = data.find(c => c.id === selectedCoin);
+                if (current) {
+                    document.getElementById('chart-price').innerText = current.current_price.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
+                    const chg = current.price_change_percentage_24h;
+                    document.getElementById('chart-chg').innerText = `${chg >= 0 ? '+' : ''}${chg.toFixed(2)}% (24H)`;
+                    document.getElementById('chart-chg').className = `text-[10px] mono ${chg >= 0 ? 'text-green-500' : 'text-red-500'}`;
+                    document.getElementById('chart-price').className = `font-bold mono text-lg ${chg >= 0 ? 'text-green-500' : 'text-red-500'}`;
+                }
+                document.getElementById('last-update').innerText = 'SYNC: ' + new Date().toLocaleTimeString();
+            } catch (error) {
+                document.getElementById('api-status').innerText = 'LIMIT';
+                document.getElementById('api-status').className = 'text-red-500';
+            }
+        }
+
+        async function fetchRSSNews() {
+            const ticker = document.getElementById('news-ticker-content');
+            try {
+                const rssUrl = encodeURIComponent('https://www.cnbc.com/id/10001147/device/rss/rss.html');
+                const response = await fetch(`https://api.rss2json.com/v1/api.json?rss_url=${rssUrl}`);
+                const data = await response.json();
+                
+                if (data.status === 'ok') {
+                    const newsItems = data.items.map(item => `
+                        <span class="flex items-center mx-10">
+                            <span class="headline-tag">FLASH</span>
+                            ${item.title.toUpperCase()}
+                        </span>
+                    `).join('');
+                    ticker.innerHTML = newsItems + newsItems;
+                }
+            } catch (e) {
+                ticker.innerHTML = '<span class="mx-10 text-red-500">HEADLINES OFFLINE</span>';
+            }
+        }
+
+        function updateWatchlist(data) {
+            const body = document.getElementById('watchlist-body');
+            body.innerHTML = data.map(coin => `
+                <tr class="border-b border-gray-900 hover:bg-gray-900 cursor-pointer transition ${coin.id === selectedCoin ? 'bg-gray-900 border-l-2 border-l-orange-500' : ''}" onclick="selectAsset('${coin.id}', '${coin.name}')">
+                    <td class="py-2 pl-1">
+                        <div class="flex items-center">
+                            <img src="${coin.image}" class="w-3 h-3 mr-2">
+                            <span class="text-white font-bold uppercase">${coin.symbol}</span>
+                        </div>
+                    </td>
+                    <td class="py-2 text-right">$${coin.current_price.toLocaleString()}</td>
+                    <td class="py-2 text-right ${coin.price_change_percentage_24h >= 0 ? 'positive' : 'negative'}">
+                        ${coin.price_change_percentage_24h.toFixed(2)}%
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        function updateMarketTicker(data) {
+            const ticker = document.getElementById('ticker-content');
+            const items = [...data, ...data];
+            ticker.innerHTML = items.map(coin => `
+                <div class="flex items-center mx-6">
+                    <span class="text-white mr-2 uppercase">${coin.symbol}</span>
+                    <span class="mono ${coin.price_change_percentage_24h >= 0 ? 'text-green-500' : 'text-red-500'}">
+                        ${coin.current_price.toFixed(2)} ${coin.price_change_percentage_24h >= 0 ? '▲' : '▼'}
+                    </span>
+                </div>
+            `).join('');
+        }
+
+        async function selectAsset(id, name) {
+            selectedCoin = id;
+            document.getElementById('chart-title').innerText = name + ' / USD';
+            fetchChartData(id);
+            fetchPrices(); 
+        }
+
+        async function fetchChartData(id) {
+            try {
+                // Determine days for API
+                let apiDays = '1';
+                if (chartRange === '1w') apiDays = '7';
+                if (chartRange === '1m') apiDays = '30';
+
+                const response = await fetch(`https://api.coingecko.com/api/v3/coins/${id}/market_chart?vs_currency=usd&days=${apiDays}`);
+                const data = await response.json();
+                let prices = data.prices;
+
+                // For very short intervals, filter the data locally
+                const now = Date.now();
+                if (chartRange === '5m') {
+                    prices = prices.filter(p => now - p[0] <= 5 * 60 * 1000);
+                } else if (chartRange === '30m') {
+                    prices = prices.filter(p => now - p[0] <= 30 * 60 * 1000);
+                } else if (chartRange === '4h') {
+                    prices = prices.filter(p => now - p[0] <= 4 * 60 * 60 * 1000);
+                }
+
+                const labels = prices.map(p => {
+                    const d = new Date(p[0]);
+                    if (chartRange === '1w' || chartRange === '1m') {
+                        return d.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' });
+                    }
+                    return d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+                });
+                
+                const values = prices.map(p => p[1]);
+                updateChart(labels, values);
+            } catch (e) { console.error(e); }
+        }
+
+        function updateChart(labels, values) {
+            const ctx = document.getElementById('mainChart').getContext('2d');
+            const isUp = values[values.length - 1] >= values[0];
+            const color = isUp ? '#00ff00' : '#ff3b30';
+            if (mainChart) mainChart.destroy();
+            mainChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        data: values,
+                        borderColor: color,
+                        borderWidth: 2,
+                        pointRadius: 0,
+                        fill: true,
+                        backgroundColor: (c) => {
+                            const g = c.chart.ctx.createLinearGradient(0, 0, 0, 400);
+                            g.addColorStop(0, isUp ? 'rgba(0, 255, 0, 0.1)' : 'rgba(255, 59, 48, 0.1)');
+                            g.addColorStop(1, 'transparent');
+                            return g;
+                        },
+                        tension: 0.1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    animation: false,
+                    plugins: { 
+                        legend: { display: false },
+                        tooltip: {
+                            mode: 'index',
+                            intersect: false,
+                            backgroundColor: '#121212',
+                            titleFont: { family: 'JetBrains Mono' },
+                            bodyFont: { family: 'JetBrains Mono' }
+                        }
+                    },
+                    scales: {
+                        x: { 
+                            display: true,
+                            grid: { color: '#1a1a1a', drawBorder: false },
+                            ticks: { 
+                                color: '#444', 
+                                font: { family: 'JetBrains Mono', size: 9 },
+                                maxRotation: 0,
+                                autoSkip: true,
+                                maxTicksLimit: 8
+                            }
+                        },
+                        y: {
+                            grid: { color: '#1a1a1a', drawBorder: false },
+                            ticks: { 
+                                color: '#666', 
+                                font: { family: 'JetBrains Mono', size: 10 },
+                                callback: (v) => '$' + v.toLocaleString()
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        function changeRange(range) {
+            chartRange = range;
+            document.querySelectorAll('.range-btn').forEach(btn => {
+                const match = btn.innerText.toLowerCase() === range.toLowerCase();
+                btn.className = match ? 'range-btn bg-orange-600 text-[10px] px-2 py-1 rounded' : 'range-btn bg-gray-800 text-[10px] px-2 py-1 rounded';
+            });
+            fetchChartData(selectedCoin);
+        }
+
+        function updateClocks() {
+            const now = new Date();
+            const timeStr = now.toLocaleTimeString('fr-FR', { hour12: false });
+            document.getElementById('local-time-header').innerText = timeStr;
+            document.getElementById('system-clock').innerText = now.toLocaleString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' }).toUpperCase();
+        }
+
+        document.getElementById('cmd-input').addEventListener('keypress', function (e) {
+            if (e.key === 'Enter') {
+                const q = this.value.toLowerCase().trim();
+                if (q) { selectAsset(q, q.toUpperCase()); this.value = ''; }
+            }
+        });
+
+        window.onload = () => {
+            fetchPrices();
+            fetchRSSNews();
+            fetchChartData(selectedCoin);
+            setInterval(fetchPrices, 30000);
+            setInterval(fetchRSSNews, 300000);
+            setInterval(updateClocks, 1000);
+        };
+    </script>
+</body>
+</html>
